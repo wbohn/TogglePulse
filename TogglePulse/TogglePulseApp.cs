@@ -3,7 +3,9 @@ using Meadow.Devices;
 using Meadow.Foundation;
 using Meadow.Foundation.Leds;
 using Meadow.Hardware;
+using Meadow.Peripherals.Leds;
 using System;
+using System.Threading.Tasks;
 using System.Timers;
 
 namespace TogglePulse
@@ -14,37 +16,46 @@ namespace TogglePulse
     ///     State is achieved via the interrupt, which starts or restarts the animation (and Timer)
     ///     and the Timer.Elapsed callback that ends the animation
     /// </summary>
-    public class TogglePulseApp : App<F7FeatherV2, TogglePulseApp>
+    public class TogglePulseApp : App<F7FeatherV2>
     {
-        RgbPwmLed onboardLed;
-        IDigitalInputPort buttonInput; // "toggle" button
 
+        RgbPwmLed onboardLed;
+
+        // animation
         Timer pulseDurationTimer;
-        const int PulseDurationMillis = 3000;
+        const int PulseDurationMillis = 10000;
         Color pulseColor = Color.Green;
 
         /// <summary>
         ///     Initialize the IO and the timing mechanism
         /// </summary>
-        public TogglePulseApp()
+        public override Task Initialize()
         {
-            onboardLed = new RgbPwmLed(device: Device,
+            // "toggle" button
+            IPin ToggleButtonPin = Device.Pins.D03;
+            IDigitalInterruptPort buttonInput;
+
+            buttonInput = Device.CreateDigitalInterruptPort(
+                ToggleButtonPin,
+                InterruptMode.EdgeRising, // on press
+                ResistorMode.InternalPullDown);
+            buttonInput.Changed += StartOrRestartPulse;
+
+            onboardLed = new RgbPwmLed(
                 redPwmPin: Device.Pins.OnboardLedRed,
                 greenPwmPin: Device.Pins.OnboardLedGreen,
                 bluePwmPin: Device.Pins.OnboardLedBlue,
-                Meadow.Peripherals.Leds.IRgbLed.CommonType.CommonAnode);
-
-            buttonInput = Device.CreateDigitalInputPort(
-                Device.Pins.D03,
-                InterruptMode.EdgeRising); // on press
-            buttonInput.Changed += StartOrRestartPulse;
+                CommonType.CommonAnode);
 
             pulseDurationTimer = new Timer(PulseDurationMillis)
             {
                 AutoReset = false
             };
             pulseDurationTimer.Elapsed += EndPulse;
+
             Console.WriteLine("Initialized");
+
+            return base.Initialize();
         }
 
         /// <summary>
@@ -55,9 +66,9 @@ namespace TogglePulse
             if (pulseDurationTimer.Enabled) // the animation has started at least once
             {
                 // there will be a Delta because pulseDurationTimer can only be enabled by the interrupt
-                Console.WriteLine($"Stopping pulse to restart after {e.Delta?.Milliseconds}");
+                Console.WriteLine($"Stopping pulse to restart after {e.Delta?.Seconds}.{e.Delta?.Milliseconds} seconds");
                 pulseDurationTimer.Stop();
-                onboardLed.Stop();
+                onboardLed.StopAnimation();
             }
 
             // start the animation for at least the first time
@@ -73,7 +84,8 @@ namespace TogglePulse
         {
             // pulseDurationTimer.Enabled = false because it elapsed
             Console.WriteLine($"Stopping pulse after {PulseDurationMillis}");
-            onboardLed.Stop();
+            onboardLed.StopAnimation();
+            onboardLed.SetBrightness(0f);
         }
     }
 }
